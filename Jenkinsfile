@@ -7,12 +7,11 @@ pipeline {
         disableConcurrentBuilds()
         ansiColor('xterm')
     }
-    parameters{
-        booleanParam(name: 'deploy', defaultValue: false, description: 'Toggle this value')
-    }
     environment{
         def appVersion = '' //variable declaration
         nexusUrl = 'nexus.harishbalike.online:8081'
+        region = "us-east-1"
+        account_id = "705613225906"
     }
     stages {
         stage('read the version'){
@@ -33,29 +32,32 @@ pipeline {
                 """
             }
         }
-        
-        // stage('Sonar Scan'){
-        //     environment {
-        //         scannerHome = tool 'sonar-6.0' //referring scanner CLI
-        //     }
-        //     steps {
-        //         script {
-        //             withSonarQubeEnv('sonar-6.0') { //referring sonar server
-        //                 sh "${scannerHome}/bin/sonar-scanner"
-        //             }
-        //         }
-        //     }
-        // }
 
-        // stage("Quality Gate") {
-        //     steps {
-        //       timeout(time: 30, unit: 'MINUTES') {
-        //         waitForQualityGate abortPipeline: true
-        //       }
-        //     }
-        // }
+        stage('Docker build'){
+            steps{
+                sh """
+                    aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${account_id}.dkr.ecr.${region}.amazonaws.com
 
-        stage('Nexus Artifact Upload'){
+                    docker build -t ${account_id}.dkr.ecr.${region}.amazonaws.com/expense-frontend:${appVersion} .
+
+                    docker push ${account_id}.dkr.ecr.${region}.amazonaws.com/expense-frontend:${appVersion}
+                """
+            }
+        }
+
+        stage('Deploy'){
+            steps{
+                sh """
+                    aws eks update-kubeconfig --region us-east-1 --name expense-dev
+                    cd helm
+                    sed -i 's/IMAGE_VERSION/${appVersion}/g' values.yaml
+                    helm upgrade frontend .
+                """
+            }
+        }
+
+
+        /* stage('Nexus Artifact Upload'){
             steps{
                 script{
                     nexusArtifactUploader(
@@ -77,11 +79,6 @@ pipeline {
             }
         }
         stage('Deploy'){
-            when{
-                expression{
-                    params.deploy
-                }
-            }
             steps{
                 script{
                     def params = [
@@ -90,7 +87,7 @@ pipeline {
                     build job: 'frontend-deploy', parameters: params, wait: false
                 }
             }
-        }
+        } */
     }
     post { 
         always { 
